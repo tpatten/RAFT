@@ -88,6 +88,8 @@ class FlowDataset(data.Dataset):
             flow, valid = frame_utils.readFlowKITTI(self.flow_list[index])
         else:
             flow = frame_utils.read_gen(self.flow_list[index])
+            if type(flow) is tuple:
+                flow, valid = flow
 
         img1 = frame_utils.read_gen(self.image_list[index][0])
         img2 = frame_utils.read_gen(self.image_list[index][1])
@@ -254,8 +256,8 @@ class AWI_Dubbo(FlowDataset):
             self.is_test = True
 
         # Setting to generate the flow for all available folders
-        fleece_dirs = sorted([f for f in os.listdir(flow_dir) if f.startswith('fleece')])
         flow_dir = os.path.join(root, flow_dir)
+        fleece_dirs = sorted([f for f in os.listdir(flow_dir) if f.startswith('fleece')])
 
         if split == 'test':
             self.is_test = True
@@ -297,11 +299,10 @@ class AWI_UV(FlowDataset):
         mask_dir = 'masks'
 
         if split == 'test':
-            # Setting to generate the flow for all available folders
-            fleece_dirs = sorted([f for f in os.listdir(root) if f.startswith('fleece')])
             self.is_test = True
-        else:
-            raise NotImplementedError
+        
+        # Setting to generate the flow for all available folders
+        fleece_dirs = sorted([f for f in os.listdir(root) if f.startswith('fleece')])
 
         for subdir in fleece_dirs:
             for image_p in image_pairs:
@@ -355,9 +356,9 @@ def fetch_dataloader(args, TRAIN_DS='C+T+K+S+H'):
     elif args.stage == 'dubbo':
         aug_params = None  # {'crop_size': args.image_size, 'min_scale': -0.2, 'max_scale': 0.4, 'do_flip': False}
         if args.image_size[1] != AWI_IMAGE_RES[1]:
-            train_dataset = AWI_Dubbo(aug_params, split='training', root=AWI_ROOT['awi'], halve_image=True)
+            train_dataset = AWI_Dubbo(aug_params, split='training', root=AWI_ROOT['dubbo'], halve_image=True)
         else:
-            train_dataset = AWI_Dubbo(aug_params, split='training', root=AWI_ROOT['awi'], halve_image=False)
+            train_dataset = AWI_Dubbo(aug_params, split='training', root=AWI_ROOT['dubbo'], halve_image=False)
 
     elif args.stage == 'deniliquin':
         raise NotImplementedError

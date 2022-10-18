@@ -40,7 +40,7 @@ except:
 
 
 # exclude extremely large displacements
-MAX_FLOW = 400
+MAX_FLOW = 500  # 400
 SUM_FREQ = 100
 VAL_FREQ = 1000
 
@@ -187,7 +187,7 @@ def train(args):
                 image1 = (image1 + stdv * torch.randn(*image1.shape).cuda()).clamp(0.0, 255.0)
                 image2 = (image2 + stdv * torch.randn(*image2.shape).cuda()).clamp(0.0, 255.0)
 
-            flow_predictions = model(image1, image2, iters=args.iters)            
+            flow_predictions = model(image1, image2, iters=args.iters)
 
             loss, metrics = sequence_loss(flow_predictions, flow, valid, args.gamma)
             scaler.scale(loss).backward()
@@ -213,7 +213,7 @@ def train(args):
                     elif val_dataset == 'kitti':
                         results.update(evaluate.validate_kitti(model.module))
                     elif val_dataset == 'awi_uv':
-                        results.update(evaluate.validate_awi_uv(model.module))
+                        results.update(evaluate.validate_awi_uv(model.module, halve_image=train_loader.dataset.halve_image))
 
                 logger.push_validation(results)
                 logger.write_dict(results)

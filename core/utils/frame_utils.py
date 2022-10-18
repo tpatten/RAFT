@@ -123,7 +123,7 @@ def writeFlowKITTI(filename, uv):
 
 def readMat(filename):
     flow = sio.loadmat(filename)['matrix'].astype(np.float32)  # after skirt --> before skirt
-    valid = ~np.isnan(flow).any(axis=2)
+    valid = ~np.isnan(flow).any(axis=-1)
     return flow, valid
 
 

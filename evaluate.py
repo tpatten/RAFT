@@ -10,6 +10,7 @@ import torch
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+import imageio
 
 import datasets
 from utils import flow_viz
@@ -171,26 +172,39 @@ def validate_kitti(model, iters=24):
 def validate_awi_uv(model, iters=24, halve_image=False):
     """ Perform validation using the AWI UV dataset """
     model.eval()
-    val_dataset = datasets.AWI_UV(split='test', root=datasets.AWI_ROOT['awi_uv'], halve_image=halve_image)
+    val_dataset = datasets.AWI_UV(split='validation', root=datasets.AWI_ROOT['awi_uv'], halve_image=halve_image)
     print('Evaluating on {} image pairs'.format(len(val_dataset)))
 
     results = {}
     epe_list = []
     for val_id in tqdm(range(len(val_dataset))):
         image1, image2, flow_gt, valid_gt = val_dataset[val_id]
-        image1 = image1[None].to(f'cuda:{model.device_ids[0]}')
-        image2 = image2[None].to(f'cuda:{model.device_ids[0]}')
+        image1 = image1[None].cuda()
+        image2 = image2[None].cuda()
 
         padder = InputPadder(image1.shape)
         image1, image2 = padder.pad(image1, image2)
 
-        flow_pr = model.module(image1, image2, iters=iters, test_mode=True)
+        _, flow_pr = model(image1, image2, iters=iters, test_mode=True)
         flow = padder.unpad(flow_pr[0]).cpu()
 
         epe = torch.sum((flow - flow_gt) ** 2, dim=0).sqrt()
         epe = epe.view(-1)
         val = valid_gt.reshape(-1) >= 0.5
-        epe_list.append(epe[val].mean().item())
+        if val.sum() > 0:
+            epe_list.append(epe[val].mean().item())
+
+        # Visualizations
+        output_flow = flow.permute(1, 2, 0).numpy()
+        flow_img = flow_viz.flow_to_image(output_flow)
+        flow_img = Image.fromarray(flow_img)
+        fleece_id, ts = val_dataset.extra_info[val_id]['scene'], val_dataset.extra_info[val_id]['frame']
+        if not os.path.exists(f'vis/awi_uv/{fleece_id}/vis/'):
+            os.makedirs(f'vis/awi_uv/{fleece_id}/vis/')
+        if not os.path.exists(f'vis/awi_uv/{fleece_id}/flow/'):
+            os.makedirs(f'vis/awi_uv/{fleece_id}/flow/')
+        imageio.imwrite(f'vis/awi_uv/{fleece_id}/vis/{ts}.png', flow_img)
+        frame_utils.writeFlow(f'vis/awi_uv/{fleece_id}/flow/{ts}.flo', output_flow)
 
     epe_all = np.array(epe_list)
 
