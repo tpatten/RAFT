@@ -19,7 +19,8 @@ from raft import RAFT
 import evaluate
 import datasets
 
-from torch.utils.tensorboard import SummaryWriter
+# from torch.utils.tensorboard import SummaryWriter
+import wandb
 
 try:
     from torch.cuda.amp import GradScaler
@@ -38,10 +39,10 @@ except:
             pass
 
 
-# exclude extremly large displacements
+# exclude extremely large displacements
 MAX_FLOW = 400
 SUM_FREQ = 100
-VAL_FREQ = 5000
+VAL_FREQ = 1000
 
 
 def sequence_loss(flow_preds, flow_gt, valid, gamma=0.8, max_flow=MAX_FLOW):
@@ -50,7 +51,7 @@ def sequence_loss(flow_preds, flow_gt, valid, gamma=0.8, max_flow=MAX_FLOW):
     n_predictions = len(flow_preds)    
     flow_loss = 0.0
 
-    # exlude invalid pixels and extremely large diplacements
+    # exclude invalid pixels and extremely large displacements
     mag = torch.sum(flow_gt**2, dim=1).sqrt()
     valid = (valid >= 0.5) & (mag < max_flow)
 
@@ -87,12 +88,17 @@ def fetch_optimizer(args, model):
     
 
 class Logger:
-    def __init__(self, model, scheduler):
+    def __init__(self, model, scheduler, log_wandb=False):
         self.model = model
         self.scheduler = scheduler
         self.total_steps = 0
         self.running_loss = {}
-        self.writer = None
+        self.train_epe_list = []
+        self.val_results = {}
+        # self.writer = None
+        self.log_wandb = log_wandb
+        if self.log_wandb:
+            initialise_wandb()
 
     def _print_training_status(self):
         metrics_data = [self.running_loss[k]/SUM_FREQ for k in sorted(self.running_loss.keys())]
@@ -102,11 +108,14 @@ class Logger:
         # print the training status
         print(training_str + metrics_str)
 
-        if self.writer is None:
-            self.writer = SummaryWriter()
+        # if self.writer is None:
+        #     self.writer = SummaryWriter()
+
+        # logging running loss to total loss
+        self.train_epe_list.append(np.mean(self.running_loss['epe']))
 
         for k in self.running_loss:
-            self.writer.add_scalar(k, self.running_loss[k]/SUM_FREQ, self.total_steps)
+            # self.writer.add_scalar(k, self.running_loss[k]/SUM_FREQ, self.total_steps)
             self.running_loss[k] = 0.0
 
     def push(self, metrics):
@@ -122,15 +131,27 @@ class Logger:
             self._print_training_status()
             self.running_loss = {}
 
+    def push_validation(self, metrics):
+        # Record results in logger
+        for key in metrics.keys():
+            if key not in self.val_results.keys():
+                self.val_results[key] = []
+            self.val_results[key].append(metrics[key])
+
     def write_dict(self, results):
-        if self.writer is None:
-            self.writer = SummaryWriter()
+        if self.log_wandb:
+            log_set = {'loss': self.train_epe_list[-1]}
+            for key in self.val_results.keys():
+                log_set[key] = self.val_results[key][-1]
+            wandb.log(log_set)
+        # if self.writer is None:
+        #     self.writer = SummaryWriter()
 
-        for key in results:
-            self.writer.add_scalar(key, results[key], self.total_steps)
+        # for key in results:
+        #     self.writer.add_scalar(key, results[key], self.total_steps)
 
-    def close(self):
-        self.writer.close()
+    # def close(self):
+    #     self.writer.close()
 
 
 def train(args):
@@ -152,10 +173,7 @@ def train(args):
 
     total_steps = 0
     scaler = GradScaler(enabled=args.mixed_precision)
-    logger = Logger(model, scheduler)
-
-    VAL_FREQ = 5000
-    add_noise = True
+    logger = Logger(model, scheduler, args.wandb)
 
     should_keep_training = True
     while should_keep_training:
@@ -194,7 +212,10 @@ def train(args):
                         results.update(evaluate.validate_sintel(model.module))
                     elif val_dataset == 'kitti':
                         results.update(evaluate.validate_kitti(model.module))
+                    elif val_dataset == 'awi_uv':
+                        results.update(evaluate.validate_awi_uv(model.module))
 
+                logger.push_validation(results)
                 logger.write_dict(results)
                 
                 model.train()
@@ -207,11 +228,15 @@ def train(args):
                 should_keep_training = False
                 break
 
-    logger.close()
+    # logger.close()
     PATH = 'checkpoints/%s.pth' % args.name
     torch.save(model.state_dict(), PATH)
 
     return PATH
+
+
+def initialise_wandb():
+    wandb.init(project='scv_optical_flow', entity='tpatten')
 
 
 if __name__ == '__main__':
@@ -236,6 +261,9 @@ if __name__ == '__main__':
     parser.add_argument('--dropout', type=float, default=0.0)
     parser.add_argument('--gamma', type=float, default=0.8, help='exponential weighting')
     parser.add_argument('--add_noise', action='store_true')
+
+    parser.add_argument('--wandb', action='store_true', help='log to wandb')
+
     args = parser.parse_args()
 
     torch.manual_seed(1234)

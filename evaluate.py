@@ -9,6 +9,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 import datasets
 from utils import flow_viz
@@ -164,6 +165,43 @@ def validate_kitti(model, iters=24):
 
     print("Validation KITTI: %f, %f" % (epe, f1))
     return {'kitti-epe': epe, 'kitti-f1': f1}
+
+
+@torch.no_grad()
+def validate_awi_uv(model, iters=24, halve_image=False):
+    """ Perform validation using the AWI UV dataset """
+    model.eval()
+    val_dataset = datasets.AWI_UV(split='test', root=datasets.AWI_ROOT['awi_uv'], halve_image=halve_image)
+    print('Evaluating on {} image pairs'.format(len(val_dataset)))
+
+    results = {}
+    epe_list = []
+    for val_id in tqdm(range(len(val_dataset))):
+        image1, image2, flow_gt, valid_gt = val_dataset[val_id]
+        image1 = image1[None].to(f'cuda:{model.device_ids[0]}')
+        image2 = image2[None].to(f'cuda:{model.device_ids[0]}')
+
+        padder = InputPadder(image1.shape)
+        image1, image2 = padder.pad(image1, image2)
+
+        flow_pr = model.module(image1, image2, iters=iters, test_mode=True)
+        flow = padder.unpad(flow_pr[0]).cpu()
+
+        epe = torch.sum((flow - flow_gt) ** 2, dim=0).sqrt()
+        epe = epe.view(-1)
+        val = valid_gt.reshape(-1) >= 0.5
+        epe_list.append(epe[val].mean().item())
+
+    epe_all = np.array(epe_list)
+
+    epe = np.mean(epe_all)
+    px1 = np.mean(epe_all < 1)
+    px3 = np.mean(epe_all < 3)
+    px5 = np.mean(epe_all < 5)
+
+    print("Validation EPE: %f, 1px: %f, 3px: %f, 5px: %f" % (epe, px1, px3, px5))
+    results['awi_epe'] = np.mean(epe)
+    return results
 
 
 if __name__ == '__main__':
