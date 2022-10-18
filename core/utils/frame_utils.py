@@ -2,6 +2,7 @@ import numpy as np
 from PIL import Image
 from os.path import *
 import re
+import scipy.io as sio
 
 import cv2
 cv2.setNumThreads(0)
@@ -118,7 +119,13 @@ def writeFlowKITTI(filename, uv):
     valid = np.ones([uv.shape[0], uv.shape[1], 1])
     uv = np.concatenate([uv, valid], axis=-1).astype(np.uint16)
     cv2.imwrite(filename, uv[..., ::-1])
-    
+
+
+def readMat(filename):
+    flow = sio.loadmat(filename)['matrix'].astype(np.float32)  # after skirt --> before skirt
+    valid = ~np.isnan(flow).any(axis=2)
+    return flow, valid
+
 
 def read_gen(file_name, pil=False):
     ext = splitext(file_name)[-1]
@@ -134,4 +141,6 @@ def read_gen(file_name, pil=False):
             return flow
         else:
             return flow[:, :, :-1]
+    elif ext == '.mat':
+        return readMat(file_name)
     return []
