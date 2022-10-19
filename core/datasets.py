@@ -21,7 +21,9 @@ AWI_ROOT = {'dubbo': '/home/tpatten/Data/AWI/AWI_Dataset',
             'denilquin': '/home/tpatten/Data/AWI/AWI_Dataset_2',
             'awi_uv': '/home/tpatten/Data/AWI/TechLab_UV_Annotation'}
 
-AWI_IMAGE_RES = (600, 2464)
+AWI_IMAGE_RES = {'dubbo': (600, 2464),
+                 'deniliquin': (1028, 2464),
+                 'awi_uv': (1028, 2464)}
 
 AWI_UV_EPS = 50
 
@@ -284,7 +286,47 @@ class AWI_Dubbo(FlowDataset):
                             self.extra_info += [{'scene': subdir, 'camera': c, 'frame': f_name}]
 
 
-# class AWI_Deniliquin(FlowDataset):
+class AWI_Deniliquin(FlowDataset):
+    def __init__(self, aug_params=None, halve_image=False, split='training', root=''):
+        super(AWI_Deniliquin, self).__init__(aug_params, sparse=False, halve_image=halve_image)
+
+        # Constants
+        cameras = ['GX300643', 'GX301187']
+        image_dir = 'images'
+        flow_dir = 'flow_annotation'
+        annotation_dir = 'json'
+        reject_list = {'fleece04_2022-05-18-09-11-56', 'fleece05_2022-05-18-09-20-31', 'fleece08_2022-05-18-09-46-29',
+                       'fleece30_2022-05-18-13-29-14', 'fleece41_2022-05-18-14-48-14'}
+
+        if split == 'test':
+            self.is_test = True
+
+        # Setting to generate the flow for all available folders
+        flow_dir = os.path.join(root, flow_dir)
+        fleece_dirs = sorted([f for f in os.listdir(flow_dir) if f.startswith('fleece') and f not in reject_list])
+
+        for subdir in fleece_dirs:
+            for c in cameras:
+                path_to_images = os.path.join(root, subdir, c, image_dir)
+                path_to_annotations = os.path.join(root, subdir, c, annotation_dir)
+                path_to_flows = os.path.join(flow_dir, subdir, c)
+                if os.path.exists(path_to_flows):
+                    # Get all files in the directory
+                    for i, f in enumerate(os.listdir(path_to_flows)):
+                        f_name, f_ext = os.path.splitext(f)
+                        flow_file = os.path.join(path_to_flows, f)
+                        anno_file = os.path.join(path_to_annotations, f.replace(f_ext, '.json'))
+                        if os.path.isfile(anno_file):
+                            with open(anno_file) as json_file:
+                                anno_data = json.load(json_file)
+                            image_1 = os.path.join(path_to_images, f.replace(f_ext, '.png'))
+                            image_2 = os.path.join(path_to_annotations, anno_data['correspondence'])
+
+                            self.image_list += [[image_2, image_1]]  # Reverse because want flow from after to before skirted
+                            self.flow_list += [flow_file]
+                            # scene, camera and frame_id with no extension
+                            self.extra_info += [{'scene': subdir, 'camera': c, 'frame': f_name}]
+
 
 
 class AWI_UV(FlowDataset):
@@ -355,10 +397,10 @@ def fetch_dataloader(args, TRAIN_DS='C+T+K+S+H'):
 
     elif args.stage == 'dubbo':
         aug_params = None  # {'crop_size': args.image_size, 'min_scale': -0.2, 'max_scale': 0.4, 'do_flip': False}
-        if args.image_size[1] != AWI_IMAGE_RES[1]:
-            train_dataset = AWI_Dubbo(aug_params, split='training', root=AWI_ROOT['dubbo'], halve_image=True)
+        if args.image_size[1] != AWI_IMAGE_RES[args.stage][1]:
+            train_dataset = AWI_Dubbo(aug_params, split='training', root=AWI_ROOT[args.stage], halve_image=True)
         else:
-            train_dataset = AWI_Dubbo(aug_params, split='training', root=AWI_ROOT['dubbo'], halve_image=False)
+            train_dataset = AWI_Dubbo(aug_params, split='training', root=AWI_ROOT[args.stage], halve_image=False)
 
     elif args.stage == 'deniliquin':
         raise NotImplementedError

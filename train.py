@@ -138,7 +138,7 @@ class Logger:
                 self.val_results[key] = []
             self.val_results[key].append(metrics[key])
 
-    def write_dict(self, results):
+    def write_dict(self):
         if self.log_wandb:
             log_set = {'loss': self.train_epe_list[-1]}
             for key in self.val_results.keys():
@@ -165,8 +165,8 @@ def train(args):
     model.cuda()
     model.train()
 
-    if args.stage != 'chairs':
-        model.module.freeze_bn()
+    # if args.stage != 'chairs':
+    #     model.module.freeze_bn()
 
     train_loader = datasets.fetch_dataloader(args)
     optimizer, scheduler = fetch_optimizer(args, model)
@@ -213,10 +213,12 @@ def train(args):
                     elif val_dataset == 'kitti':
                         results.update(evaluate.validate_kitti(model.module))
                     elif val_dataset == 'awi_uv':
-                        results.update(evaluate.validate_awi_uv(model.module, halve_image=train_loader.dataset.halve_image))
+                        results.update(evaluate.validate_awi_uv(model.module,
+                            halve_image=train_loader.dataset.halve_image,
+                            save=args.save))
 
                 logger.push_validation(results)
-                logger.write_dict(results)
+                logger.write_dict()
                 
                 model.train()
                 if args.stage != 'chairs':
@@ -262,6 +264,7 @@ if __name__ == '__main__':
     parser.add_argument('--gamma', type=float, default=0.8, help='exponential weighting')
     parser.add_argument('--add_noise', action='store_true')
 
+    parser.add_argument('--save', action='store_true', help='save predictions to file')
     parser.add_argument('--wandb', action='store_true', help='log to wandb')
 
     args = parser.parse_args()

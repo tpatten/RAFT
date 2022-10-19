@@ -169,10 +169,55 @@ def validate_kitti(model, iters=24):
 
 
 @torch.no_grad()
-def validate_awi_uv(model, iters=24, halve_image=False):
+def validate_awi_d(model, dataset_name, iters=6, halve_image=False, save=False):
+    """ Perform validation using the AWI Dubbo or Deniliquin datasets """
+    assert dataset_name in {'dubbo', 'deniliquin'}, 'Dataset must be named dubbo or deniliquin'
+
+    model.eval()
+    if dataset_name == 'dubbo':
+        val_dataset = datasets.AWI_Dubbo(split='test', root=datasets.AWI_ROOT['dubbo'], halve_image=halve_image)
+        out_dir = 'awi_dubbo'
+    elif dataset_name == 'deniliquin':
+        val_dataset = datasets.AWI_Deniliquon(split='test', root=datasets.AWI_ROOT['deniliquin'], halve_image=halve_image)
+        out_dir = 'awi_deniliquin'
+
+    print('Evaluating on {} image pairs'.format(len(val_dataset)))
+
+    for val_id in tqdm(range(len(val_dataset))):
+        image1, image2, frame_info = val_dataset[val_id]
+        image1 = image1[None].cuda()
+        image2 = image2[None].cuda()
+
+        padder = InputPadder(image1.shape)
+        image1, image2 = padder.pad(image1, image2)
+
+        flow_pr = model.module(image1, image2, iters=iters, test_mode=True)
+        flow = padder.unpad(flow_pr[0]).cpu()
+
+        # Visualizations
+        if save:
+            output_flow = flow.permute(1, 2, 0).numpy()
+            flow_img = flow_viz.flow_to_image(output_flow)
+            flow_img = Image.fromarray(flow_img)
+            fleece_id = frame_info['scene']
+            camera = frame_info['camera']
+            ts = frame_info['frame']
+            if not os.path.exists(f'vis/{out_dir}/{fleece_id}/{camera}/vis/'):
+                os.makedirs(f'vis/{out_dir}/{fleece_id}/{camera}/vis/')
+            if not os.path.exists(f'vis/{out_dir}/{fleece_id}/{camera}/flow/'):
+                os.makedirs(f'vis/{out_dir}/{fleece_id}/{camera}/flow/')
+            imageio.imwrite(f'vis/{out_dir}/{fleece_id}/{camera}/vis/{ts}.png', flow_img)
+            frame_utils.writeFlow(f'vis/{out_dir}/{fleece_id}/{camera}/flow/{ts}.flo', output_flow)
+
+
+
+@torch.no_grad()
+def validate_awi_uv(model, iters=24, halve_image=False, save=False):
     """ Perform validation using the AWI UV dataset """
     model.eval()
     val_dataset = datasets.AWI_UV(split='validation', root=datasets.AWI_ROOT['awi_uv'], halve_image=halve_image)
+    out_dir = 'awi_uv'
+
     print('Evaluating on {} image pairs'.format(len(val_dataset)))
 
     results = {}
@@ -195,16 +240,17 @@ def validate_awi_uv(model, iters=24, halve_image=False):
             epe_list.append(epe[val].mean().item())
 
         # Visualizations
-        output_flow = flow.permute(1, 2, 0).numpy()
-        flow_img = flow_viz.flow_to_image(output_flow)
-        flow_img = Image.fromarray(flow_img)
-        fleece_id, ts = val_dataset.extra_info[val_id]['scene'], val_dataset.extra_info[val_id]['frame']
-        if not os.path.exists(f'vis/awi_uv/{fleece_id}/vis/'):
-            os.makedirs(f'vis/awi_uv/{fleece_id}/vis/')
-        if not os.path.exists(f'vis/awi_uv/{fleece_id}/flow/'):
-            os.makedirs(f'vis/awi_uv/{fleece_id}/flow/')
-        imageio.imwrite(f'vis/awi_uv/{fleece_id}/vis/{ts}.png', flow_img)
-        frame_utils.writeFlow(f'vis/awi_uv/{fleece_id}/flow/{ts}.flo', output_flow)
+        if save:
+            output_flow = flow.permute(1, 2, 0).numpy()
+            flow_img = flow_viz.flow_to_image(output_flow)
+            flow_img = Image.fromarray(flow_img)
+            fleece_id, ts = val_dataset.extra_info[val_id]['scene'], val_dataset.extra_info[val_id]['frame']
+            if not os.path.exists(f'vis/{out_dir}/{fleece_id}/vis/'):
+                os.makedirs(f'vis/{out_dir}/{fleece_id}/vis/')
+            if not os.path.exists(f'vis/{out_dir}/{fleece_id}/flow/'):
+                os.makedirs(f'vis/{out_dir}/{fleece_id}/flow/')
+            imageio.imwrite(f'vis/{out_dir}/{fleece_id}/vis/{ts}.png', flow_img)
+            frame_utils.writeFlow(f'vis/{out_dir}/{fleece_id}/flow/{ts}.flo', output_flow)
 
     epe_all = np.array(epe_list)
 
@@ -225,6 +271,8 @@ if __name__ == '__main__':
     parser.add_argument('--small', action='store_true', help='use small model')
     parser.add_argument('--mixed_precision', action='store_true', help='use mixed precision')
     parser.add_argument('--alternate_corr', action='store_true', help='use efficent correlation implementation')
+    parser.add_argument('--save', action='store_true', help='save predictions to file')
+    parser.add_argument('--halve', action='store_true', help='halve the image')
     args = parser.parse_args()
 
     model = torch.nn.DataParallel(RAFT(args))
@@ -245,5 +293,11 @@ if __name__ == '__main__':
 
         elif args.dataset == 'kitti':
             validate_kitti(model.module)
+
+        elif args.dataset == 'dubbo' or args.dataset == 'deniliquin':
+            validate_awi_d(model, args.dataset, iters=24, halve_image=args.halve, save=args.save)
+
+        elif args.dataset == 'awi_uv':
+            validate_awi_uv(model, iters=24, halve_image=args.halve, save=args.save)
 
 
