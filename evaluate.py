@@ -191,7 +191,7 @@ def validate_awi_d(model, dataset_name, iters=6, halve_image=False, save=False):
         padder = InputPadder(image1.shape)
         image1, image2 = padder.pad(image1, image2)
 
-        flow_pr = model.module(image1, image2, iters=iters, test_mode=True)
+        _, flow_pr = model.module(image1, image2, iters=iters, test_mode=True)
         flow = padder.unpad(flow_pr[0]).cpu()
 
         # Visualizations
