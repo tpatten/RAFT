@@ -1,6 +1,7 @@
 # Data loading based on https://github.com/NVIDIA/flownet2-pytorch
 
 import numpy as np
+from core.utils import augmentor
 import torch
 import torch.utils.data as data
 import torch.nn.functional as F
@@ -18,7 +19,7 @@ from utils.augmentor import FlowAugmentor, SparseFlowAugmentor
 
 
 AWI_ROOT = {'dubbo': '/home/tpatten/Data/AWI/AWI_Dataset',
-            'denilquin': '/home/tpatten/Data/AWI/AWI_Dataset_2',
+            'deniliquin': '/home/tpatten/Data/AWI/AWI_Dataset_2',
             'awi_uv': '/home/tpatten/Data/AWI/TechLab_UV_Annotation'}
 
 AWI_IMAGE_RES = {'dubbo': (600, 2464),
@@ -29,7 +30,7 @@ AWI_UV_EPS = 50
 
 
 class FlowDataset(data.Dataset):
-    def __init__(self, aug_params=None, sparse=False, halve_image=False):
+    def __init__(self, aug_params=None, sparse=False, halve_image=False, special_crop=False):
         self.augmentor = None
         self.sparse = sparse
         if aug_params is not None:
@@ -44,6 +45,7 @@ class FlowDataset(data.Dataset):
         self.image_list = []
         self.extra_info = []
         self.halve_image = halve_image
+        self.special_crop = special_crop
 
     def __getitem__(self, index):
 
@@ -126,6 +128,15 @@ class FlowDataset(data.Dataset):
                 img1, img2, flow, valid = self.augmentor(img1, img2, flow, valid)
             else:
                 img1, img2, flow = self.augmentor(img1, img2, flow)
+        elif self.augmentor is None and self.special_crop: 
+            # Special for Deniliquin
+            if img1.shape[0] > 600:
+                crop_size = 600
+                y0 = np.random.randint(0, img1.shape[0] - crop_size)
+                img1 = img1[y0:y0+crop_size, :, :]
+                img2 = img2[y0:y0+crop_size, :, :]
+                flow = flow[y0:y0+crop_size, :, :]
+                valid = valid[y0:y0+crop_size, :]
 
         img1 = torch.from_numpy(img1).permute(2, 0, 1).float()
         img2 = torch.from_numpy(img2).permute(2, 0, 1).float()
@@ -288,7 +299,7 @@ class AWI_Dubbo(FlowDataset):
 
 class AWI_Deniliquin(FlowDataset):
     def __init__(self, aug_params=None, halve_image=False, split='training', root=''):
-        super(AWI_Deniliquin, self).__init__(aug_params, sparse=False, halve_image=halve_image)
+        super(AWI_Deniliquin, self).__init__(aug_params, sparse=False, halve_image=halve_image, special_crop=True)
 
         # Constants
         cameras = ['GX300643', 'GX301187']
@@ -320,7 +331,7 @@ class AWI_Deniliquin(FlowDataset):
                             with open(anno_file) as json_file:
                                 anno_data = json.load(json_file)
                             image_1 = os.path.join(path_to_images, f.replace(f_ext, '.png'))
-                            image_2 = os.path.join(path_to_annotations, anno_data['correspondence'])
+                            image_2 = os.path.join(path_to_annotations, anno_data['correspondence'][0])
 
                             self.image_list += [[image_2, image_1]]  # Reverse because want flow from after to before skirted
                             self.flow_list += [flow_file]
@@ -403,7 +414,12 @@ def fetch_dataloader(args, TRAIN_DS='C+T+K+S+H'):
             train_dataset = AWI_Dubbo(aug_params, split='training', root=AWI_ROOT[args.stage], halve_image=False)
 
     elif args.stage == 'deniliquin':
-        raise NotImplementedError
+        aug_params = None  # {'crop_size': args.image_size, 'min_scale': -0.2, 'max_scale': 0.4, 'do_flip': False}
+        # aug_params = {'crop_size': (600, 1232)}
+        if args.image_size[1] != AWI_IMAGE_RES[args.stage][1]:
+            train_dataset = AWI_Deniliquin(aug_params, split='training', root=AWI_ROOT[args.stage], halve_image=True)
+        else:
+            train_dataset = AWI_Deniliquin(aug_params, split='training', root=AWI_ROOT[args.stage], halve_image=False)
 
     train_loader = data.DataLoader(train_dataset, batch_size=args.batch_size, 
         pin_memory=False, shuffle=True, num_workers=4, drop_last=True)

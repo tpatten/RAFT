@@ -95,7 +95,6 @@ class Logger:
         self.running_loss = {}
         self.train_epe_list = []
         self.val_results = {}
-        # self.writer = None
         self.log_wandb = log_wandb
         if self.log_wandb:
             initialise_wandb()
@@ -107,9 +106,6 @@ class Logger:
         
         # print the training status
         print(training_str + metrics_str)
-
-        # if self.writer is None:
-        #     self.writer = SummaryWriter()
 
         # logging running loss to total loss
         self.train_epe_list.append(np.mean(self.running_loss['epe']))
@@ -144,14 +140,6 @@ class Logger:
             for key in self.val_results.keys():
                 log_set[key] = self.val_results[key][-1]
             wandb.log(log_set)
-        # if self.writer is None:
-        #     self.writer = SummaryWriter()
-
-        # for key in results:
-        #     self.writer.add_scalar(key, results[key], self.total_steps)
-
-    # def close(self):
-    #     self.writer.close()
 
 
 def train(args):
